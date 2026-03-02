@@ -26,13 +26,23 @@ def setup_logging():
     )
 
 
+def _send_to_all(config: dict, message: str):
+    """Send a message to all configured phone numbers."""
+    phones = config.get("phones", [])
+    for phone in phones:
+        try:
+            send_imessage(phone, message)
+        except Exception as e:
+            logging.error(f"Failed to send to {phone}: {e}")
+
+
 def _notify_error(config: dict, message: str):
-    """Send error notification to self via iMessage. Fails silently."""
-    phone = config.get("phone")
-    if not phone:
+    """Send error notification to first phone only. Fails silently."""
+    phones = config.get("phones", [])
+    if not phones:
         return
     try:
-        send_imessage(phone, message)
+        send_imessage(phones[0], message)
     except Exception as e:
         logging.warning(f"Could not send error notification: {e}")
 
@@ -109,7 +119,7 @@ def run():
 
             try:
                 message = compose_alert(deal)
-                send_imessage(config["phone"], message)
+                _send_to_all(config, message)
                 state[deal.dedup_key] = datetime.now(timezone.utc).isoformat()
                 save_state(state)
                 new_alerts += 1

@@ -1,6 +1,6 @@
 {
   "origin": "ATL",
-  "phone": "+1XXXXXXXXXX",
+  "phones": ["+1XXXXXXXXXX", "+1YYYYYYYYYY"],
   "min_cents_per_mile": 2.0,
   "min_seats": 2,
   "cabins": ["first", "business"],

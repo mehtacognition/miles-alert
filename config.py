@@ -8,7 +8,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 STATE_FILE = CONFIG_DIR / "sent_alerts.json"
 LOG_DIR = CONFIG_DIR / "logs"
 
-REQUIRED_FIELDS = ["origin", "phone"]
+REQUIRED_FIELDS = ["origin", "phones"]
 STATE_PRUNE_DAYS = 14
 
 
@@ -28,6 +28,10 @@ def load_config():
         )
     with open(CONFIG_FILE) as f:
         config = json.load(f)
+
+    # Backward compat: migrate old "phone" field to "phones" list
+    if "phone" in config and "phones" not in config:
+        config["phones"] = [config.pop("phone")]
 
     for field in REQUIRED_FIELDS:
         if field not in config:

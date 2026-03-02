@@ -30,7 +30,7 @@ def test_load_config_valid(tmp_config_dir):
     config_file = tmp_config_dir / "config.json"
     config_file.write_text(json.dumps({
         "origin": "ATL",
-        "phone": "+15551234567",
+        "phones": ["+15551234567", "+15559876543"],
         "min_cents_per_mile": 2.0,
         "min_seats": 2,
         "cabins": ["first", "business"],
@@ -44,7 +44,7 @@ def test_load_config_valid(tmp_config_dir):
 def test_load_config_missing_required_field(tmp_config_dir):
     config_file = tmp_config_dir / "config.json"
     config_file.write_text(json.dumps({"origin": "ATL"}))
-    with pytest.raises(ValueError, match="phone"):
+    with pytest.raises(ValueError, match="phones"):
         load_config()
 
 
@@ -84,3 +84,16 @@ def test_ensure_config_dir(tmp_config_dir):
     log_dir = tmp_config_dir / "logs"
     ensure_config_dir()
     assert log_dir.exists()
+
+
+def test_load_config_migrates_phone_to_phones(tmp_config_dir):
+    """Old configs with 'phone' string should migrate to 'phones' list."""
+    config_file = tmp_config_dir / "config.json"
+    config_file.write_text(json.dumps({
+        "origin": "ATL",
+        "phone": "+15551234567",
+    }))
+    config = load_config()
+    assert "phones" in config
+    assert config["phones"] == ["+15551234567"]
+    assert "phone" not in config

@@ -9,7 +9,7 @@ from sources.seats_aero import SeatsAeroSource, CABIN_FIELDS
 def sample_config():
     return {
         "origin": "ATL",
-        "phone": "+15551234567",
+        "phones": ["+15551234567"],
         "seats_aero_api_key": "pro_test_key_123",
         "cabins": ["first", "business"],
     }

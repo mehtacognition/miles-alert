@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from sources.base import AwardDeal
-from miles_alert import run, filter_deals
+from miles_alert import run, filter_deals, _send_to_all
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def sample_deals():
 def sample_config():
     return {
         "origin": "ATL",
-        "phone": "+15551234567",
+        "phones": ["+15551234567", "+15559876543"],
         "min_cents_per_mile": 2.0,
         "min_seats": 2,
         "cabins": ["first", "business"],
@@ -65,3 +65,13 @@ def test_filter_deals_by_cabin(sample_config):
     ]
     filtered = filter_deals(deals, sample_config)
     assert len(filtered) == 0
+
+
+@patch("miles_alert.send_imessage")
+def test_send_to_all_sends_to_both_phones(mock_send):
+    """Should send message to all phones in the config."""
+    config = {"phones": ["+15551111111", "+15552222222"]}
+    _send_to_all(config, "Test deal alert")
+    assert mock_send.call_count == 2
+    mock_send.assert_any_call("+15551111111", "Test deal alert")
+    mock_send.assert_any_call("+15552222222", "Test deal alert")

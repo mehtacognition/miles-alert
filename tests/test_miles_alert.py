@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from sources.base import AwardDeal
-from miles_alert import run, filter_deals, _send_to_all, classify_tier, detect_price_drop
+from miles_alert import run, filter_deals, _send_to_all, classify_tier, detect_price_drop, is_watchlist_match
 
 
 @pytest.fixture
@@ -127,3 +127,46 @@ def test_is_watchlist_match_wrong_destination():
 def test_is_watchlist_match_empty_watchlist():
     deal = AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero")
     assert is_watchlist_match(deal, []) is False
+
+
+def test_detect_price_drop_found():
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 70000, 2, "2026-05-15", "seats_aero")
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": 85000}
+    }
+    result = detect_price_drop(deal, state)
+    assert result is not None
+    assert result == 85000  # previous price
+
+
+def test_detect_price_drop_no_drop():
+    """Same or higher price should not trigger a price drop."""
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 85000, 2, "2026-05-15", "seats_aero")
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": 85000}
+    }
+    assert detect_price_drop(deal, state) is None
+
+
+def test_detect_price_drop_increase():
+    """Price increase should not trigger."""
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 90000, 2, "2026-05-15", "seats_aero")
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": 85000}
+    }
+    assert detect_price_drop(deal, state) is None
+
+
+def test_detect_price_drop_not_in_state():
+    """New deal not in state should not trigger price drop."""
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 70000, 2, "2026-05-15", "seats_aero")
+    assert detect_price_drop(deal, {}) is None
+
+
+def test_detect_price_drop_no_previous_price():
+    """Migrated old state entry with no miles_price should not trigger."""
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 70000, 2, "2026-05-15", "seats_aero")
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": None}
+    }
+    assert detect_price_drop(deal, state) is None

@@ -43,11 +43,17 @@ def load_config():
     config.setdefault("sources", ["seats_aero"])
     config.setdefault("seats_aero_api_key", None)
     config.setdefault("excluded_destinations", [])
+    config.setdefault("tier_thresholds", {"exceptional": 5.0, "strong": 3.0, "good": 2.0})
+    config.setdefault("watchlist", [])
     return config
 
 
 def load_state():
-    """Load sent alert state. Prunes entries older than STATE_PRUNE_DAYS."""
+    """Load sent alert state. Prunes entries older than STATE_PRUNE_DAYS.
+
+    State format: {dedup_key: {"alerted_at": iso_timestamp, "miles_price": int|None}}
+    Migrates old format (plain timestamp string) automatically.
+    """
     if not STATE_FILE.exists():
         return {}
     with open(STATE_FILE) as f:
@@ -55,13 +61,20 @@ def load_state():
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=STATE_PRUNE_DAYS)
     pruned = {}
-    for key, ts in data.items():
+    for key, value in data.items():
+        # Migrate old format: plain timestamp string -> new dict format
+        if isinstance(value, str):
+            value = {"alerted_at": value, "miles_price": None}
+        elif value is None:
+            value = {"alerted_at": None, "miles_price": None}
+
+        ts = value.get("alerted_at")
         if ts is None:
-            pruned[key] = ts
+            pruned[key] = value
         else:
             alert_time = datetime.fromisoformat(ts)
             if alert_time > cutoff:
-                pruned[key] = ts
+                pruned[key] = value
     return pruned
 
 

@@ -36,7 +36,7 @@ def load_config():
     config.setdefault("min_cents_per_mile", 2.0)
     config.setdefault("min_seats", 2)
     config.setdefault("cabins", ["first", "business"])
-    config.setdefault("sources", ["delta_search"])
+    config.setdefault("sources", ["seats_aero"])
     config.setdefault("seats_aero_api_key", None)
     config.setdefault("excluded_destinations", [])
     return config

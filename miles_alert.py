@@ -10,7 +10,7 @@ from config import load_config, load_state, save_state, LOG_DIR, ensure_config_d
 from sources.base import AwardDeal
 from sources.delta_search import DeltaSearchSource
 from enrichment import enrich_with_cash_price
-from message_composer import compose_alert
+from message_composer import compose_alert, compose_digest, compose_price_drop
 from imessage import send_imessage
 
 
@@ -125,6 +125,50 @@ def is_watchlist_match(deal: AwardDeal, watchlist: list[dict]) -> bool:
     return False
 
 
+def build_alert_plan(deals: list[AwardDeal], config: dict, state: dict) -> dict:
+    """Classify deals and build an alert plan.
+
+    Returns dict with keys:
+        individual: list of {"deal": AwardDeal, "tier": str, "watchlist_hit": bool}
+        digest: {"strong": [...], "good": [...], "no_cpm": [...]}
+        price_drops: list of {"deal": AwardDeal, "previous_miles": int}
+    """
+    thresholds = config["tier_thresholds"]
+    watchlist = config.get("watchlist", [])
+
+    individual = []
+    digest = {"strong": [], "good": [], "no_cpm": []}
+    price_drops = []
+
+    for deal in deals:
+        # Check for price drop first (applies to already-seen deals)
+        prev_price = detect_price_drop(deal, state)
+        if prev_price is not None:
+            price_drops.append({"deal": deal, "previous_miles": prev_price})
+            continue
+
+        # Skip already-alerted deals
+        if deal.dedup_key in state:
+            continue
+
+        tier = classify_tier(deal, thresholds)
+        watchlist_hit = is_watchlist_match(deal, watchlist)
+
+        # Exceptional or watchlist hits send individually
+        if tier == "exceptional" or watchlist_hit:
+            individual.append({"deal": deal, "tier": tier, "watchlist_hit": watchlist_hit})
+        else:
+            # Bucket into digest by tier
+            if deal.cents_per_mile is None:
+                digest["no_cpm"].append(deal)
+            elif tier == "strong":
+                digest["strong"].append(deal)
+            else:
+                digest["good"].append(deal)
+
+    return {"individual": individual, "digest": digest, "price_drops": price_drops}
+
+
 def run():
     """Main run loop."""
     setup_logging()
@@ -153,22 +197,67 @@ def run():
         filtered = filter_deals(enriched, config)
         logging.info(f"{len(filtered)} deals pass filters")
 
-        new_alerts = 0
-        for deal in filtered:
-            if deal.dedup_key in state:
-                logging.debug(f"Already alerted: {deal.dedup_key}")
-                continue
+        plan = build_alert_plan(filtered, config, state)
 
+        new_alerts = 0
+
+        # Send individual alerts (exceptional + watchlist)
+        for item in plan["individual"]:
+            deal = item["deal"]
             try:
-                message = compose_alert(deal)
+                message = compose_alert(deal, tier=item["tier"], watchlist_hit=item["watchlist_hit"])
                 _send_to_all(config, message)
-                state[deal.dedup_key] = datetime.now(timezone.utc).isoformat()
+                state[deal.dedup_key] = {
+                    "alerted_at": datetime.now(timezone.utc).isoformat(),
+                    "miles_price": deal.miles_price,
+                }
                 save_state(state)
                 new_alerts += 1
-                logging.info(f"Alerted: {deal.dedup_key}")
+                logging.info(f"Individual alert: {deal.dedup_key} (tier={item['tier']}, watchlist={item['watchlist_hit']})")
             except Exception as e:
                 logging.error(f"Failed to send alert for {deal.dedup_key}: {e}")
                 _notify_error(config, f"Miles Alert: failed to send alert. Check logs.")
+
+        # Send price drop alerts
+        for item in plan["price_drops"]:
+            deal = item["deal"]
+            try:
+                message = compose_price_drop(deal, previous_miles=item["previous_miles"])
+                _send_to_all(config, message)
+                state[deal.dedup_key] = {
+                    "alerted_at": datetime.now(timezone.utc).isoformat(),
+                    "miles_price": deal.miles_price,
+                }
+                save_state(state)
+                new_alerts += 1
+                logging.info(f"Price drop alert: {deal.dedup_key}")
+            except Exception as e:
+                logging.error(f"Failed to send price drop for {deal.dedup_key}: {e}")
+                _notify_error(config, f"Miles Alert: failed to send alert. Check logs.")
+
+        # Send digest
+        digest_msg = compose_digest(
+            plan["digest"],
+            exceptional_count=len(plan["individual"]),
+            watchlist_count=sum(1 for i in plan["individual"] if i["watchlist_hit"]),
+        )
+        if digest_msg:
+            try:
+                _send_to_all(config, digest_msg)
+                # Mark digest deals as alerted
+                for tier_deals in plan["digest"].values():
+                    for deal in tier_deals:
+                        state[deal.dedup_key] = {
+                            "alerted_at": datetime.now(timezone.utc).isoformat(),
+                            "miles_price": deal.miles_price,
+                        }
+                save_state(state)
+                digest_count = sum(len(v) for v in plan["digest"].values())
+                new_alerts += digest_count
+                logging.info(f"Digest sent with {digest_count} deals")
+            except Exception as e:
+                logging.error(f"Failed to send digest: {e}")
+                _notify_error(config, f"Miles Alert: failed to send digest. Check logs.")
 
         logging.info(f"Miles alert complete. {new_alerts} new alerts sent.")
 

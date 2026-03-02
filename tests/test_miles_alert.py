@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from sources.base import AwardDeal
-from miles_alert import run, filter_deals, _send_to_all, classify_tier, detect_price_drop, is_watchlist_match
+from miles_alert import run, filter_deals, _send_to_all, classify_tier, detect_price_drop, is_watchlist_match, build_alert_plan
 
 
 @pytest.fixture
@@ -170,3 +170,71 @@ def test_detect_price_drop_no_previous_price():
         "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": None}
     }
     assert detect_price_drop(deal, state) is None
+
+
+def test_build_alert_plan_separates_tiers():
+    """Exceptional deals go to individual alerts, others to digest."""
+    deals = [
+        AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero", 8000.0),   # 10.0 CPM -> exceptional
+        AwardDeal("ATL", "CDG", "DL", "business", 120000, 2, "2026-06-14", "seats_aero", 4800.0), # 4.0 CPM -> strong
+        AwardDeal("ATL", "FCO", "DL", "business", 95000, 3, "2026-08-03", "seats_aero", 2300.0),  # 2.4 CPM -> good
+    ]
+    config = {
+        "tier_thresholds": {"exceptional": 5.0, "strong": 3.0, "good": 2.0},
+        "watchlist": [],
+    }
+    state = {}
+    plan = build_alert_plan(deals, config, state)
+    assert len(plan["individual"]) == 1  # NRT exceptional
+    assert plan["individual"][0]["deal"].destination == "NRT"
+    assert len(plan["digest"]["strong"]) == 1
+    assert len(plan["digest"]["good"]) == 1
+
+
+def test_build_alert_plan_watchlist_sends_individually():
+    """Watchlist hits send individually even if only 'good' tier."""
+    deals = [
+        AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero", 2000.0),  # 2.5 CPM -> good
+    ]
+    config = {
+        "tier_thresholds": {"exceptional": 5.0, "strong": 3.0, "good": 2.0},
+        "watchlist": [{"destination": "NRT", "cabin": "first"}],
+    }
+    state = {}
+    plan = build_alert_plan(deals, config, state)
+    assert len(plan["individual"]) == 1
+    assert plan["individual"][0]["watchlist_hit"] is True
+
+
+def test_build_alert_plan_price_drop():
+    """Price drops send individually."""
+    deals = [
+        AwardDeal("ATL", "NRT", "DL", "first", 70000, 2, "2026-05-15", "seats_aero", 8500.0),
+    ]
+    config = {
+        "tier_thresholds": {"exceptional": 5.0, "strong": 3.0, "good": 2.0},
+        "watchlist": [],
+    }
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": 85000}
+    }
+    plan = build_alert_plan(deals, config, state)
+    assert len(plan["price_drops"]) == 1
+    assert plan["price_drops"][0]["previous_miles"] == 85000
+
+
+def test_build_alert_plan_dedup_skips_known_deals():
+    """Deals already in state (same price) should not appear in digest or individual."""
+    deals = [
+        AwardDeal("ATL", "NRT", "DL", "first", 85000, 2, "2026-05-15", "seats_aero", 8500.0),  # 10.0 CPM exceptional
+    ]
+    config = {
+        "tier_thresholds": {"exceptional": 5.0, "strong": 3.0, "good": 2.0},
+        "watchlist": [],
+    }
+    state = {
+        "ATL-NRT-first-2026-05-15": {"alerted_at": "2026-03-01T10:00:00+00:00", "miles_price": 85000}
+    }
+    plan = build_alert_plan(deals, config, state)
+    assert len(plan["individual"]) == 0
+    assert len(plan["price_drops"]) == 0

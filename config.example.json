@@ -1,0 +1,10 @@
+{
+  "origin": "ATL",
+  "phone": "+1XXXXXXXXXX",
+  "min_cents_per_mile": 2.0,
+  "min_seats": 2,
+  "cabins": ["first", "business"],
+  "sources": ["delta_search"],
+  "seats_aero_api_key": null,
+  "excluded_destinations": []
+}

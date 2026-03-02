@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from sources.base import AwardDeal
-from miles_alert import run, filter_deals, _send_to_all
+from miles_alert import run, filter_deals, _send_to_all, classify_tier, detect_price_drop
 
 
 @pytest.fixture
@@ -75,3 +75,55 @@ def test_send_to_all_sends_to_both_phones(mock_send):
     assert mock_send.call_count == 2
     mock_send.assert_any_call("+15551111111", "Test deal alert")
     mock_send.assert_any_call("+15552222222", "Test deal alert")
+
+
+@pytest.fixture
+def tier_thresholds():
+    return {"exceptional": 5.0, "strong": 3.0, "good": 2.0}
+
+
+def test_classify_tier_exceptional(tier_thresholds):
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero", 8000.0)
+    # 8000/80000*100 = 10.0 CPM -> exceptional
+    assert classify_tier(deal, tier_thresholds) == "exceptional"
+
+
+def test_classify_tier_strong(tier_thresholds):
+    deal = AwardDeal("ATL", "CDG", "DL", "business", 120000, 2, "2026-06-01", "seats_aero", 4800.0)
+    # 4800/120000*100 = 4.0 CPM -> strong
+    assert classify_tier(deal, tier_thresholds) == "strong"
+
+
+def test_classify_tier_good(tier_thresholds):
+    deal = AwardDeal("ATL", "LHR", "DL", "business", 100000, 2, "2026-07-01", "seats_aero", 2500.0)
+    # 2500/100000*100 = 2.5 CPM -> good
+    assert classify_tier(deal, tier_thresholds) == "good"
+
+
+def test_classify_tier_no_cpm_defaults_to_strong(tier_thresholds):
+    """Deals without cash price (no CPM) should default to strong tier."""
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero")
+    assert classify_tier(deal, tier_thresholds) == "strong"
+
+
+def test_is_watchlist_match_hit():
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero")
+    watchlist = [{"destination": "NRT", "cabin": "first"}]
+    assert is_watchlist_match(deal, watchlist) is True
+
+
+def test_is_watchlist_match_wrong_cabin():
+    deal = AwardDeal("ATL", "NRT", "DL", "business", 120000, 2, "2026-05-15", "seats_aero")
+    watchlist = [{"destination": "NRT", "cabin": "first"}]
+    assert is_watchlist_match(deal, watchlist) is False
+
+
+def test_is_watchlist_match_wrong_destination():
+    deal = AwardDeal("ATL", "LHR", "DL", "first", 80000, 2, "2026-05-15", "seats_aero")
+    watchlist = [{"destination": "NRT", "cabin": "first"}]
+    assert is_watchlist_match(deal, watchlist) is False
+
+
+def test_is_watchlist_match_empty_watchlist():
+    deal = AwardDeal("ATL", "NRT", "DL", "first", 80000, 2, "2026-05-15", "seats_aero")
+    assert is_watchlist_match(deal, []) is False

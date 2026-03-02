@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Miles Alert — Delta SkyMiles award deal finder and alerter."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
 
@@ -81,6 +83,46 @@ def filter_deals(deals: list[AwardDeal], config: dict) -> list[AwardDeal]:
         filtered.append(deal)
 
     return filtered
+
+
+def classify_tier(deal: AwardDeal, thresholds: dict) -> str:
+    """Classify a deal into a quality tier based on cents-per-mile.
+
+    Returns: "exceptional", "strong", or "good".
+    Deals without CPM data default to "strong".
+    """
+    cpm = deal.cents_per_mile
+    if cpm is None:
+        return "strong"
+    if cpm >= thresholds["exceptional"]:
+        return "exceptional"
+    if cpm >= thresholds["strong"]:
+        return "strong"
+    return "good"
+
+
+def detect_price_drop(deal: AwardDeal, state: dict) -> int | None:
+    """Check if a deal's miles price dropped since last alert.
+
+    Returns the previous miles price if a drop is detected, None otherwise.
+    """
+    entry = state.get(deal.dedup_key)
+    if entry is None:
+        return None
+    prev_price = entry.get("miles_price")
+    if prev_price is None:
+        return None
+    if deal.miles_price < prev_price:
+        return prev_price
+    return None
+
+
+def is_watchlist_match(deal: AwardDeal, watchlist: list[dict]) -> bool:
+    """Check if a deal matches any entry in the route watchlist."""
+    for entry in watchlist:
+        if deal.destination == entry["destination"] and deal.cabin == entry["cabin"]:
+            return True
+    return False
 
 
 def run():

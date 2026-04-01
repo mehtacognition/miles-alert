@@ -5,3 +5,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Secrets and credentials — never commit these
+.env
+.env.*
+*.key
+*.pem
+*secret*
+*credential*
+*token*.json

@@ -1,4 +1,7 @@
-venv/
+venv
+venv.nosync/
+.venv
+.venv.nosync/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -14,3 +17,8 @@ build/
 *secret*
 *credential*
 *token*.json
+
+# Local-only project context (keeps personal context out of public repo;
+# matches flight-texter pattern)
+CLAUDE.md
+HANDOVER.md
